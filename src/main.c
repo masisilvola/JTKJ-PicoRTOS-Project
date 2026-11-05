@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <string.h>
 
@@ -13,11 +12,14 @@
 // Default stack size for the tasks. It can be reduced to 1024 if task is not using lot of memory.
 #define DEFAULT_STACK_SIZE 2048 
 
-//Add here necessary states
-enum state { IDLE=1 };
-enum state programState = IDLE;
+// Tilat asennon tunnistukselle
+typedef enum {
+    ASENTO_TUNTEMATON = 0,
+    ASENTO_YLOS,
+    ASENTO_ALAS
+} device_orientation_t;
 
-static void example_task(void *arg){
+static void example_task(void *arg) {
     (void)arg;
 
     // Alustetaan ICM-42670 oletusarvoilla (LN-tila, ±4g, ±250 dps)
@@ -31,59 +33,70 @@ static void example_task(void *arg){
     float gx = 0.0f, gy = 0.0f, gz = 0.0f;
     float temp = 0.0f;
 
+    device_orientation_t NYKYINEN_TILA = ASENTO_TUNTEMATON;   
+
     for (;;) {
         // Luetaan anturin mittausarvot
         if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &temp) == 0) {
-            // Tunnistetaan asento Z-akselin kiihtyvyydestä (painovoima g)
-            const char *asento = "Kallellaan / Tuntematon";
-            if (az > 0.7f) {
-                asento = "OIKEIN PAIN (Z ~ +1g)";
-            } else if (az < -0.7f) {
-                asento = "VAAROIN PAIN / YLOSALAISIN (Z ~ -1g)";
+            
+            // 1. Tunnistetaan asento Z-akselin kiihtyvyydestä
+            device_orientation_t ASENTO = ASENTO_TUNTEMATON;
+            if (az > 0.9f) {
+                ASENTO = ASENTO_YLOS;
+            } else if (az < -0.9f) {
+                ASENTO = ASENTO_ALAS;
+            }
+            
+            // 2. Tulostetaan viesti VAIN jos siirrytään tuntemattomasta tunnettuun asentoon
+            if (NYKYINEN_TILA == ASENTO_TUNTEMATON && ASENTO != ASENTO_TUNTEMATON) {
+                if (ASENTO == ASENTO_YLOS) {
+                    printf("Asento: YLOS\n");
+                } else if (ASENTO == ASENTO_ALAS) {
+                    printf("Asento: ALAS\n");
+                }
             }
 
-            printf("[%s] Accel: X=%.2f Y=%.2f Z=%.2f g | Gyro: X=%.1f Y=%.1f Z=%.1f dps | T=%.1f C\n",
-                   asento, ax, ay, az, gx, gy, gz, temp);
+            // 3. Päivitetään tila seuraavaa kierrosta varten
+            NYKYINEN_TILA = ASENTO;
+
         } else {
-            printf("Virhe luettaessa sensoridataa.\n");
+            printf("Anturin lukeminen epaonnistui\n");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(500)); // Luetaan 500 ms valein
+        vTaskDelay(pdMS_TO_TICKS(500)); // Luetaan 500 ms välein
     }
 }
 
-    //for(;;){
-    //    tight_loop_contents(); // Modify with application code here.
-      //  vTaskDelay(pdMS_TO_TICKS(2000));
-
-
 int main() {
     stdio_init_all();
-    //Uncomment this lines if you want to wait till the serial monitor is connected
-    while (!stdio_usb_connected()){
+    
+    // Odotetaan kunnes USB-sarjayhteys on muodostettu
+    while (!stdio_usb_connected()) {
         sleep_ms(10);
     }
+    
     init_hat_sdk();
-    sleep_ms(300); //Wait some time so initialization of USB and hat is done.
+    sleep_ms(300); // Odotetaan hetki alustusten valmistumista
 
     TaskHandle_t myExampleTask = NULL;
-    // Create the tasks with xTaskCreate
-    BaseType_t result = xTaskCreate(example_task,       // (en) Task function
-                "example",              // (en) Name of the task 
-                DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                NULL,               // (en) Arguments of the task 
-                2,                  // (en) Priority of this task
-                &myExampleTask);    // (en) A handle to control the execution of this task
+    
+    // Luodaan FreeRTOS-tehtävä
+    BaseType_t result = xTaskCreate(
+        example_task,
+        "example",
+        DEFAULT_STACK_SIZE,
+        NULL,
+        2,
+        &myExampleTask
+    );
 
-    if(result != pdPASS) {
+    if (result != pdPASS) {
         printf("Example Task creation failed\n");
         return 0;
     }
 
-    // Start the scheduler (never returns)
+    // Käynnistetään scheduler
     vTaskStartScheduler();
 
-    // Never reach this line.
     return 0;
 }
-
