@@ -17,58 +17,37 @@
 
 // Tilakoneen tilat laitteen asennon tunnistukseen (Z-akseli)
 typedef enum {
-    ASENTO_TUNTEMATON = 0, // Laite on vaaka-asennossa tai liikkeessä
-    ASENTO_YLOS,           // Laite on pystyssä osoittaen ylöspäin
-    ASENTO_ALAS            // Laite on pystyssä osoittaen alaspäin
+    ASENTO_TUNTEMATON = 0, 
+    ASENTO_YLOS,          
+    ASENTO_ALAS            
 } device_orientation_t;
 
 // Puskuri morse-merkkien keräämistä varten ennen lähetystä
 static char msg_buffer[MAX_MSG_LEN];
-static size_t msg_len = 0; // Kerättyjen merkkien nykyinen määrä
+static size_t msg_len = 0; // Kerättyjen merkkien määrä alussa
 
-// Päätehtävä: lukee anturia, käsittelee painikkeet ja lähettää viestin
-static void example_task(void *arg) {
+// 1. Tehtävä: Lukee painikkeita ja käsittelee viestin lähetyksen sekä välilyönnit
+static void button_task(void *arg) {
     (void)arg;
 
-    // Alustetaan 6-akselinen ICM-42670 IMU-anturi oletusarvoilla
-    if (ICM42670_start_with_default_values() != 0) {
-        printf("ICM-42670 alustus epaonnistui!\n");
-    } else {
-        printf("ICM-42670 alustettu onnistuneesti.\n");
-    }
-
-    // Muuttujat anturidatan tallettamiseen
-    float ax = 0.0f, ay = 0.0f, az = 0.0f; // Kiihtyvyydet (g)
-    float gx = 0.0f, gy = 0.0f, gz = 0.0f; // Kulmanopeudet (dps)
-    float temp = 0.0f;                     // Lämpötila (°C)
-
-    // Tilamuuttujat asennon ja painikkeiden tilanmuutosten seurantaan
-    device_orientation_t NYKYINEN_TILA = ASENTO_TUNTEMATON;   
     bool last_sw1_state = true; // Pull-up-kytketty: lepotila on 1 (true)
     bool last_sw2_state = true; 
-    int imu_counter = 0;        // Jakolaskuri IMU-anturin harvempaan lukemiseen
 
     for (;;) {
-        // -------------------------------------------------------------
-        // 1. PAINIKKEIDEN LUKEMINEN JA DEBOUNCE (10 ms välein)
-        // -------------------------------------------------------------
         bool sw1 = gpio_get(SW1_PIN);
         bool sw2 = gpio_get(SW2_PIN);
 
-        // SW1-painallus (reunantunnistus: ylhäältä alas):
-        // Lisätään morsekoodin kirjainten välinen välilyönti puskuriin
+        // välilyönti 
         if (!sw1 && last_sw1_state) {
             if (msg_len < MAX_MSG_LEN - 1) {
-                msg_buffer[msg_len++] = ' ';
+                msg_buffer[msg_len++] = ' '; 
                 msg_buffer[msg_len] = '\0';
             }
         }
 
-        // SW2-painallus (reunantunnistus: ylhäältä alas):
-        // Lähetetään koko kerätty viesti tarkistimelle yhtenä pakettina
+        // bufferin lähetys ja tyhjennys 
         if (!sw2 && last_sw2_state) {
             if (msg_len > 0) {
-                // Tulostetaan koko merkkijono ja lopetuksen merkiksi rivinvaihto (\n)
                 printf("%s\n", msg_buffer);
                 fflush(stdout); // Tyhjennetään USB-lähetyspuskuri heti
 
@@ -82,44 +61,58 @@ static void example_task(void *arg) {
         last_sw1_state = sw1;
         last_sw2_state = sw2;
 
-        // -------------------------------------------------------------
-        // 2. IMU-ANTURIN LUKU JA ASENNON TUNNISTUS (50 * 10 ms = 500 ms välein)
-        // -------------------------------------------------------------
-        if (++imu_counter >= 50) {
-            imu_counter = 0;
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
 
-            if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &temp) == 0) {
-                
-                // Määritetään asento Z-akselin kiihtyvyyden perusteella
-                device_orientation_t ASENTO = ASENTO_TUNTEMATON;
-                if (az > 0.9f) {
-                    ASENTO = ASENTO_YLOS; // Laite pystyssä ylöspäin
-                } else if (az < -0.9f) {
-                    ASENTO = ASENTO_ALAS; // Laite ylösalaisin
-                }
-                
-                // Lisätään merkki puskuriin VAIN kun laite käännetään neutraalista asentoon
-                if (NYKYINEN_TILA == ASENTO_TUNTEMATON && ASENTO != ASENTO_TUNTEMATON) {
-                    if (msg_len < MAX_MSG_LEN - 1) {
-                        if (ASENTO == ASENTO_YLOS) {
-                            msg_buffer[msg_len++] = '.'; // Piste
-                        } else if (ASENTO == ASENTO_ALAS) {
-                            msg_buffer[msg_len++] = '-'; // Viiva
-                        }
-                        msg_buffer[msg_len] = '\0';
-                    }
-                }
+// 2. Tehtävä: Lukee IMU-anturia ja tunnistaa asennon (piste / viiva)
+static void imu_task(void *arg) {
+    (void)arg;
 
-                // Päivitetään asento seuraavaa anturilukua varten
-                NYKYINEN_TILA = ASENTO;
+    // Alustetaan 6-akselinen ICM-42670 IMU-anturi oletusarvoilla
+    if (ICM42670_start_with_default_values() != 0) {
+        printf("ICM-42670 alustus epaonnistui!\n");
+    } else {
+        printf("ICM-42670 alustettu onnistuneesti.\n");
+    }
 
-            } else {
-                printf("Anturin lukeminen epaonnistui\n");
+    float ax = 0.0f, ay = 0.0f, az = 0.0f; // Kiihtyvyydet (g)
+    float gx = 0.0f, gy = 0.0f, gz = 0.0f; // Kulmanopeudet (dps)
+    float temp = 0.0f;                     // Lämpötila (°C) (TURHA)
+
+    device_orientation_t NYKYINEN_TILA = ASENTO_TUNTEMATON;   
+
+    for (;;) {
+        if (ICM42670_read_sensor_data(&ax, &ay, &az, &gx, &gy, &gz, &temp) == 0) {
+            
+            // Määritetään asento Z-akselin kiihtyvyyden perusteella
+            device_orientation_t ASENTO = ASENTO_TUNTEMATON;
+            if (az > 0.9f) {
+                ASENTO = ASENTO_YLOS; // Laite pystyssä ylöspäin
+            } else if (az < -0.9f) {
+                ASENTO = ASENTO_ALAS; // Laite ylösalaisin
             }
+            
+            // Lisätään merkki puskuriin VAIN kun laite käännetään neutraalista asentoon
+            if (NYKYINEN_TILA == ASENTO_TUNTEMATON && ASENTO != ASENTO_TUNTEMATON) {
+                if (msg_len < MAX_MSG_LEN - 1) {
+                    if (ASENTO == ASENTO_YLOS) {
+                        msg_buffer[msg_len++] = '.'; // Piste
+                    } else if (ASENTO == ASENTO_ALAS) {
+                        msg_buffer[msg_len++] = '-'; // Viiva
+                    }
+                    msg_buffer[msg_len] = '\0';
+                }
+            }
+
+            // Päivitetään asento seuraavaa anturilukua varten
+            NYKYINEN_TILA = ASENTO;
+
+        } else {
+            printf("Anturin lukeminen epaonnistui\n");
         }
 
-        // Tehtävän viive: antaa suoritusaikaa muille tehtäville ja säätelee näytteenottotaajuutta
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 }
 
@@ -146,26 +139,36 @@ int main() {
     
     sleep_ms(300); // Lyhyt odotus laitealustusten asettumiseen
 
-    TaskHandle_t myExampleTask = NULL;
+    TaskHandle_t buttonTaskHandle = NULL;
+    TaskHandle_t imuTaskHandle = NULL;
     
-    // Luodaan FreeRTOS-tehtävä
-    BaseType_t result = xTaskCreate(
-        example_task,
-        "example",
+    // Luodaan painikkeiden tehtävä
+    BaseType_t res1 = xTaskCreate(
+        button_task,
+        "ButtonTask",
         DEFAULT_STACK_SIZE,
         NULL,
-        2,              // Prioriteetti
-        &myExampleTask
+        2,
+        &buttonTaskHandle
     );
 
-    if (result != pdPASS) {
-        printf("Example Task creation failed\n");
+    // Luodaan IMU-anturin tehtävä
+    BaseType_t res2 = xTaskCreate(
+        imu_task,
+        "ImuTask",
+        DEFAULT_STACK_SIZE,
+        NULL,
+        2,
+        &imuTaskHandle
+    );
+
+    if (res1 != pdPASS || res2 != pdPASS) {
+        printf("Tehtävien luonti epäonnistui\n");
         return 0;
     }
 
-    // Käynnistetään FreeRTOS-tehtävänjakaja (scheduler)
+    // Käynnistetään FreeRTOS-tehtävänjakaja
     vTaskStartScheduler();
 
-    // Tänne ei pitäisi koskaan päätyä normaalitilassa
     return 0;
 }
