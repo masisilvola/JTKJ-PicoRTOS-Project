@@ -26,7 +26,7 @@ typedef enum {
 static char msg_buffer[MAX_MSG_LEN];
 static size_t msg_len = 0; // Kerättyjen merkkien määrä alussa
 
-// 1. Tehtävä: Lukee painikkeita ja käsittelee viestin lähetyksen sekä välilyönnit
+// Lukee painikkeita ja käsittelee viestin lähetyksen sekä välilyönnit
 static void button_task(void *arg) {
     (void)arg;
 
@@ -37,7 +37,7 @@ static void button_task(void *arg) {
         bool sw1 = gpio_get(SW1_PIN);
         bool sw2 = gpio_get(SW2_PIN);
 
-        // välilyönti 
+        // Välilyönti 
         if (!sw1 && last_sw1_state) {
             if (msg_len < MAX_MSG_LEN - 1) {
                 msg_buffer[msg_len++] = ' '; 
@@ -45,7 +45,7 @@ static void button_task(void *arg) {
             }
         }
 
-        // bufferin lähetys ja tyhjennys 
+        // Bufferin lähetys ja tyhjennys 
         if (!sw2 && last_sw2_state) {
             if (msg_len > 0) {
                 printf("%s\n", msg_buffer);
@@ -65,7 +65,7 @@ static void button_task(void *arg) {
     }
 }
 
-// 2. Tehtävä: Lukee IMU-anturia ja tunnistaa asennon (piste / viiva)
+// Lukee IMU-anturia ja tunnistaa asennon (piste / viiva)
 static void imu_task(void *arg) {
     (void)arg;
 
@@ -87,9 +87,9 @@ static void imu_task(void *arg) {
             
             // Määritetään asento Z-akselin kiihtyvyyden perusteella
             device_orientation_t ASENTO = ASENTO_TUNTEMATON;
-            if (az > 0.9f) {
+            if (az > 0.8f) {
                 ASENTO = ASENTO_YLOS; // Laite pystyssä ylöspäin
-            } else if (az < -0.9f) {
+            } else if (az < -0.8f) {
                 ASENTO = ASENTO_ALAS; // Laite ylösalaisin
             }
             
@@ -112,12 +112,12 @@ static void imu_task(void *arg) {
             printf("Anturin lukeminen epaonnistui\n");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
 int main() {
-    // Alustetaan standardi I/O (USB-sarjaportti)
+    // Alustetaan USB-sarjaportti
     stdio_init_all();
     
     // Estetään automaattinen rivinvaihdon lisäys/muunnos Pico SDK:ssa
